@@ -112,7 +112,7 @@ export function BoardScreen({ tournamentId }: { tournamentId: string }) {
             )}
             Clasificación en vivo
           </p>
-          <h1 className="mt-1 truncate text-4xl font-semibold tracking-tight md:text-5xl">{tournament.config.name}</h1>
+          <h1 className="mt-4 truncate text-4xl font-semibold tracking-tight md:text-4xl">{tournament.config.name}</h1>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <StatusChip status={status} />
