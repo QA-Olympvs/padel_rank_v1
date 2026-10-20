@@ -22,7 +22,7 @@ import { columnsFor } from '@/features/standings/columns'
 import { useTournaments } from '@/hooks/useTournaments'
 import { cn } from '@/lib/utils'
 
-const ROTATE_MS = 10_000
+const ROTATE_MS = 6_000
 const ROWS_PER_SLIDE = 10
 
 type Slide =
