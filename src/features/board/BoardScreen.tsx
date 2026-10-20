@@ -286,8 +286,9 @@ function BoardTable({
           {table.warning}
         </p>
       )}
-      <div className="mb-1 hidden grid-cols-[4.5rem_minmax(0,1fr)_auto] gap-4 px-3 text-xs font-medium tracking-wide text-muted-foreground uppercase sm:grid">
-        <span>#</span>
+      <div className="mb-1 hidden grid-cols-[1.5rem_2.25rem_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0 px-3 text-xs font-medium tracking-wide text-muted-foreground uppercase sm:grid">
+        <span />
+        <span className="text-center">#</span>
         <span>Pareja</span>
         <div className="flex gap-1">
           {columns.map(([label, title]) => (
@@ -300,7 +301,7 @@ function BoardTable({
           <div
             key={row.pairId}
             className={cn(
-              'grid grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-4 border-b border-border/70 px-3 py-3 last:border-b-0',
+              'grid grid-cols-[1.5rem_2.25rem_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0 border-b border-border/70 px-3 py-3 last:border-b-0',
               row.qualified && 'rounded-xl border-b-transparent bg-primary/6',
             )}
             style={{ animation: 'board-row-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both', animationDelay: `${rowIndex * 45}ms` }}
@@ -352,13 +353,17 @@ function RankMark({ rank, qualified }: { rank: number; qualified: boolean }) {
         ? <Medal className="size-4 text-orange-700" />
         : null
   return (
-    <div className={cn(
-      'flex items-center justify-center gap-1.5',
-      qualified && rank > 3 ? 'text-primary' : 'text-foreground',
-    )}>
-      {icon}
-      <span className="text-xl font-semibold tabular-nums">{rank}</span>
-    </div>
+    <>
+      <span className="flex size-6 items-center justify-center" aria-hidden={icon ? undefined : true}>
+        {icon}
+      </span>
+      <span className={cn(
+        'text-center text-xl font-semibold tabular-nums',
+        qualified && rank > 3 ? 'text-primary' : 'text-foreground',
+      )}>
+        {rank}
+      </span>
+    </>
   )
 }
 
