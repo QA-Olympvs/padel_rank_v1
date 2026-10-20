@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Trophy } from 'lucide-react'
 import { BoardScreen } from '@/features/board/BoardScreen'
 import { TournamentForm } from '@/features/tournaments/TournamentForm'
 import { TournamentList } from '@/features/tournaments/TournamentList'

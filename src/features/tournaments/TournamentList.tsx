@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { CalendarDays, Download, GitBranch, LayoutGrid, Plus, Repeat, Trash2, Trophy, Upload, Users } from 'lucide-react'
+import { CalendarDays, Download, GitBranch, LayoutGrid, Plus, Repeat, Trash2, Upload, Users } from 'lucide-react'
 import { ConfirmDelete } from '@/components/ConfirmDelete'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
