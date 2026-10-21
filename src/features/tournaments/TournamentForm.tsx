@@ -7,10 +7,12 @@ import { describeGroupPlan, planGroups } from '@/domain/groups'
 import { configError } from '@/domain/validate'
 import {
   FORMAT_LABEL,
+  GROUP_ASSIGNMENT_LABEL,
   LIMITS,
   PAIRING_LABEL,
   SCORING_LABEL,
   type CompetitionFormat,
+  type GroupAssignment,
   type PairingMode,
   type ScoringMode,
   type TournamentConfig,
@@ -22,6 +24,7 @@ interface Draft {
   pairCount: string
   courtCount: string
   pairingMode: PairingMode
+  groupAssignment: GroupAssignment
   groupSize: string
   qualifiersPerGroup: string
   scoringMode: ScoringMode
@@ -52,6 +55,7 @@ export function TournamentForm({
     pairCount: String(initial.pairCount),
     courtCount: String(initial.courtCount),
     pairingMode: initial.pairingMode,
+    groupAssignment: initial.groupAssignment ?? 'auto',
     groupSize: String(initial.groupSize),
     qualifiersPerGroup: String(initial.qualifiersPerGroup),
     scoringMode: initial.scoringMode ?? 'match_points',
@@ -210,6 +214,32 @@ export function TournamentForm({
 
       {draft.format === 'groups_knockout' && (
         <div className="grid gap-5 rounded-xl bg-muted/60 p-4 sm:grid-cols-2">
+          <Field
+            label="Asignación de grupos"
+            hint={draft.groupAssignment === 'manual'
+              ? 'Tú eliges qué parejas van a cada grupo antes de iniciar.'
+              : 'Al iniciar se reparte por el orden de las parejas.'}
+          >
+            <Select
+              value={draft.groupAssignment}
+              items={[
+                { value: 'auto', label: GROUP_ASSIGNMENT_LABEL.auto },
+                { value: 'manual', label: GROUP_ASSIGNMENT_LABEL.manual },
+              ]}
+              disabled={locked}
+              onValueChange={(value) => {
+                if (value === 'auto' || value === 'manual') update('groupAssignment', value)
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">{GROUP_ASSIGNMENT_LABEL.auto}</SelectItem>
+                <SelectItem value="manual">{GROUP_ASSIGNMENT_LABEL.manual}</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
           <Field label="Parejas por grupo" htmlFor="group-size" hint="Si no caben grupos exactos, se reparte la diferencia.">
             <Input
               id="group-size"
@@ -300,6 +330,7 @@ function readConfig(draft: Draft): { ok: true; config: TournamentConfig } | { ok
     pairCount,
     courtCount,
     pairingMode: draft.pairingMode,
+    groupAssignment: draft.format === 'groups_knockout' ? draft.groupAssignment : 'auto',
     groupSize,
     qualifiersPerGroup: qualifiers,
     scoringMode: draft.scoringMode,

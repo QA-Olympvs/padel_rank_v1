@@ -5,7 +5,18 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { addManualPair, addPlayer, drawRandomPairs, removePair, removePlayer, startTournament, type ActionResult } from '@/domain/actions'
+import {
+  addManualPair,
+  addPlayer,
+  assignPairToGroup,
+  autoFillGroups,
+  drawRandomPairs,
+  removePair,
+  removePlayer,
+  startTournament,
+  type ActionResult,
+} from '@/domain/actions'
+import { groupAssignmentOf, planGroups, unassignedPairIds } from '@/domain/groups'
 import { pairLabel } from '@/domain/present'
 import { readinessError } from '@/domain/validate'
 import type { Tournament } from '@/domain/types'
@@ -96,7 +107,9 @@ export function PlayersPanel({
             {tournament.pairs.length} de {tournament.config.pairCount}.
             {tournament.config.pairingMode === 'manual'
               ? ' Elige dos jugadores libres para cada pareja.'
-              : ' El sorteo usa el orden para los grupos y los pases.'}
+              : groupAssignmentOf(tournament) === 'auto' && tournament.config.format === 'groups_knockout'
+                ? ' El sorteo usa el orden para los grupos y los pases.'
+                : ' El sorteo forma las parejas al azar.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -155,6 +168,10 @@ export function PlayersPanel({
         </CardContent>
       </Card>
 
+      {!locked && tournament.config.format === 'groups_knockout' && groupAssignmentOf(tournament) === 'manual' && (
+        <GroupsDraftCard tournament={tournament} apply={apply} />
+      )}
+
       {tournament.groupBalanceNote && <Alert><AlertDescription>{tournament.groupBalanceNote}</AlertDescription></Alert>}
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
 
@@ -169,6 +186,79 @@ export function PlayersPanel({
         <p className="text-right text-sm text-muted-foreground">{pendingSetup}</p>
       )}
     </div>
+  )
+}
+
+const UNASSIGNED = '__none__'
+
+function GroupsDraftCard({
+  tournament,
+  apply,
+}: {
+  tournament: Tournament
+  apply: (result: ActionResult) => void
+}) {
+  const pending = unassignedPairIds(tournament)
+  const plan = planGroups(tournament.config.pairCount, tournament.config.groupSize, tournament.config.qualifiersPerGroup)
+  const caps = plan.sizes
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Grupos</CardTitle>
+        <CardDescription>
+          {pending.length === 0
+            ? 'Cada pareja ya tiene grupo. Puedes moverlas o volver a repartir.'
+            : `Faltan ${pending.length} ${pending.length === 1 ? 'pareja' : 'parejas'} por asignar.`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <Button type="button" variant="secondary" onClick={() => apply(autoFillGroups(tournament))}>
+          <Shuffle />
+          Repartir en grupos
+        </Button>
+        {tournament.pairs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Forma las parejas y luego asígnalas a cada grupo.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {tournament.pairs.map((pair, index) => {
+              const current = tournament.groups.find((group) => group.pairIds.includes(pair.id))
+              return (
+                <li key={pair.id} className="grid gap-2 rounded-lg border px-3 py-2 sm:grid-cols-[1fr_12rem] sm:items-center">
+                  <span>
+                    <span className="mr-2 text-xs font-medium text-muted-foreground">Pareja {index + 1}</span>
+                    {pairLabel(tournament, pair.id)}
+                  </span>
+                  <Select
+                    value={current?.id ?? UNASSIGNED}
+                    items={[
+                      { value: UNASSIGNED, label: 'Sin grupo' },
+                      ...tournament.groups.map((group, groupIndex) => ({
+                        value: group.id,
+                        label: `${group.name} (${group.pairIds.length}/${caps[groupIndex] || tournament.config.groupSize})`,
+                      })),
+                    ]}
+                    onValueChange={(value) => apply(assignPairToGroup(tournament, pair.id, value === UNASSIGNED ? null : value))}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Sin grupo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={UNASSIGNED}>Sin grupo</SelectItem>
+                      {tournament.groups.map((group, groupIndex) => (
+                        <SelectItem key={group.id} value={group.id}>
+                          {group.name} ({group.pairIds.length}/{caps[groupIndex] || tournament.config.groupSize})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

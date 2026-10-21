@@ -1,5 +1,11 @@
 import type { MatchSide } from './types.ts'
 
+export interface QualifierSeed {
+  pairId: string
+  points: number
+  groupId: string
+}
+
 export function nextPowerOfTwo(value: number): number {
   let size = 1
   while (size < value) size *= 2
@@ -31,7 +37,26 @@ export function knockoutRoundName(pairSlots: number): string {
 export function placeInBracket(slots: MatchSide[]): MatchSide[] {
   const size = nextPowerOfTwo(Math.max(slots.length, 2))
   const placed = bracketSeedOrder(size).map((seed) => slots[seed - 1] ?? { kind: 'bye' as const })
-  return separateSameGroup(placed)
+  return splitByeVsBye(separateSameGroup(splitByeVsBye(placed)))
+}
+
+/** Un BYE nunca debe jugar contra otro BYE: se cambia por una pareja real. */
+function splitByeVsBye(slots: MatchSide[]): MatchSide[] {
+  const next = [...slots]
+  for (let index = 0; index < next.length; index += 2) {
+    if (next[index].kind !== 'bye' || next[index + 1].kind !== 'bye') continue
+    const swapAt = next.findIndex((side, other) => {
+      if (side.kind === 'bye') return false
+      const mate = other % 2 === 0 ? other + 1 : other - 1
+      return next[mate].kind !== 'bye'
+    })
+    if (swapAt < 0) continue
+    const mate = swapAt % 2 === 0 ? swapAt + 1 : swapAt - 1
+    const displaced = next[mate]
+    next[mate] = next[index]
+    next[index] = displaced
+  }
+  return next
 }
 
 /**
@@ -52,8 +77,7 @@ function separateSameGroup(slots: MatchSide[]): MatchSide[] {
       const opponentGroup = groupOf(next[other - 1])
       if (candidateGroup === leftGroup) continue
       if (opponentGroup && opponentGroup === rightGroup) continue
-      if (next[index].kind === 'bye' && candidate.kind === 'bye') continue
-      if (next[other - 1].kind === 'bye' && next[index + 1].kind === 'bye') continue
+      if (facesBye(next, index) || facesBye(next, other - 1)) continue
       const displaced = next[index + 1]
       next[index + 1] = candidate
       next[other] = displaced
@@ -65,4 +89,67 @@ function separateSameGroup(slots: MatchSide[]): MatchSide[] {
 
 function groupOf(side: MatchSide): string | null {
   return side.kind === 'group' ? side.groupId : null
+}
+
+function facesBye(slots: MatchSide[], leftIndex: number): boolean {
+  return slots[leftIndex].kind === 'bye' || slots[leftIndex + 1].kind === 'bye'
+}
+
+/** Cuántos pases hay en un cuadro de eliminación con `count` clasificadas. */
+export function byeCountFor(count: number): number {
+  return nextPowerOfTwo(Math.max(count, 2)) - count
+}
+
+/**
+ * Los pases van a las clasificadas con más puntos. Si en el corte hay más
+ * empatadas que huecos, el azar decide entre esas.
+ */
+export function pickByePairIds(
+  qualifiers: Array<{ pairId: string; points: number }>,
+  byeCount: number,
+  random: () => number,
+): string[] {
+  const needed = Math.min(Math.max(byeCount, 0), qualifiers.length)
+  if (needed === 0) return []
+  const ranked = [...qualifiers].sort((left, right) => right.points - left.points || left.pairId.localeCompare(right.pairId))
+  const cutoff = ranked[needed - 1].points
+  const locked = ranked.filter((row) => row.points > cutoff)
+  const pool = ranked.filter((row) => row.points === cutoff)
+  const taken = shuffle(pool, random).slice(0, needed - locked.length)
+  return [...locked, ...taken].map((row) => row.pairId)
+}
+
+/** Orden de cabezas: primero quienes tienen pase, después el resto por puntos. */
+export function orderQualifiersForKnockout(qualifiers: QualifierSeed[], random: () => number): string[] {
+  const byeIds = new Set(pickByePairIds(qualifiers, byeCountFor(qualifiers.length), random))
+  const byPoints = (left: QualifierSeed, right: QualifierSeed) => right.points - left.points || left.pairId.localeCompare(right.pairId)
+  const heads = qualifiers.filter((row) => byeIds.has(row.pairId)).sort(byPoints)
+  const rest = qualifiers.filter((row) => !byeIds.has(row.pairId)).sort(byPoints)
+  return [...heads, ...rest].map((row) => row.pairId)
+}
+
+export function randomFrom(seed: string): () => number {
+  let hash = 2166136261
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return () => {
+    hash += 0x6d2b79f5
+    let next = hash
+    next = Math.imul(next ^ (next >>> 15), next | 1)
+    next ^= next + Math.imul(next ^ (next >>> 7), next | 61)
+    return ((next ^ (next >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function shuffle<T>(items: T[], random: () => number): T[] {
+  const next = [...items]
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(random() * (index + 1))
+    const current = next[index]
+    next[index] = next[swap]
+    next[swap] = current
+  }
+  return next
 }

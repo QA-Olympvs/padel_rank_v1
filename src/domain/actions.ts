@@ -1,4 +1,5 @@
 import { buildStartedTournament } from './generate.ts'
+import { fillGroupsFromPairs, groupAssignmentOf, planGroups, syncDraftGroups } from './groups.ts'
 import { createId, timestamp } from './ids.ts'
 import { syncPlayoffs } from './playoff.ts'
 import { resolveSide, sanitizeResults } from './resolve.ts'
@@ -16,21 +17,19 @@ export function createTournament(config: TournamentConfig): ActionResult {
   const error = configError(config)
   if (error) return { ok: false, error }
   const now = timestamp()
-  return {
-    ok: true,
-    tournament: {
-      id: createId(),
-      createdAt: now,
-      updatedAt: now,
-      status: 'draft',
-      config: { ...config, name: normalizeText(config.name) },
-      players: [],
-      pairs: [],
-      groups: [],
-      matches: [],
-      groupBalanceNote: null,
-    },
+  const tournament: Tournament = {
+    id: createId(),
+    createdAt: now,
+    updatedAt: now,
+    status: 'draft',
+    config: { ...config, name: normalizeText(config.name), groupAssignment: config.groupAssignment ?? 'auto' },
+    players: [],
+    pairs: [],
+    groups: [],
+    matches: [],
+    groupBalanceNote: null,
   }
+  return { ok: true, tournament: { ...tournament, groups: syncDraftGroups(tournament) } }
 }
 
 export function updateSettings(tournament: Tournament, config: TournamentConfig): ActionResult {
@@ -64,12 +63,16 @@ export function updateSettings(tournament: Tournament, config: TournamentConfig)
   const resetPairs = tournament.config.pairingMode !== nextConfig.pairingMode
     || tournament.config.pairCount !== nextConfig.pairCount
     || tournament.config.format !== nextConfig.format
+  const next: Tournament = {
+    ...tournament,
+    config: { ...nextConfig, groupAssignment: nextConfig.groupAssignment ?? 'auto' },
+    pairs: resetPairs ? [] : tournament.pairs,
+  }
   return {
     ok: true,
     tournament: touch({
-      ...tournament,
-      config: nextConfig,
-      pairs: resetPairs ? [] : tournament.pairs,
+      ...next,
+      groups: syncDraftGroups(next),
     }),
   }
 }
@@ -98,14 +101,17 @@ export function addPlayer(tournament: Tournament, name: string): ActionResult {
 export function removePlayer(tournament: Tournament, playerId: string): ActionResult {
   const draftError = draftOnly(tournament)
   if (draftError) return draftError
-  return {
-    ok: true,
-    tournament: touch({
-      ...tournament,
-      players: tournament.players.filter((player) => player.id !== playerId),
-      pairs: tournament.pairs.filter((pair) => !pair.playerIds.includes(playerId)),
-    }),
+  const pairs = tournament.pairs.filter((pair) => !pair.playerIds.includes(playerId))
+  const next = {
+    ...tournament,
+    players: tournament.players.filter((player) => player.id !== playerId),
+    pairs,
+    groups: tournament.groups.map((group) => ({
+      ...group,
+      pairIds: group.pairIds.filter((id) => pairs.some((pair) => pair.id === id)),
+    })),
   }
+  return { ok: true, tournament: touch({ ...next, groups: syncDraftGroups(next) }) }
 }
 
 export function addManualPair(tournament: Tournament, firstId: string, secondId: string): ActionResult {
@@ -121,13 +127,19 @@ export function addManualPair(tournament: Tournament, firstId: string, secondId:
     return { ok: false, error: 'Uno de esos jugadores ya tiene pareja.' }
   }
   const pair: Pair = { id: createId(), playerIds: [firstId, secondId] }
-  return { ok: true, tournament: touch({ ...tournament, pairs: [...tournament.pairs, pair] }) }
+  const next = { ...tournament, pairs: [...tournament.pairs, pair] }
+  return { ok: true, tournament: touch({ ...next, groups: syncDraftGroups(next) }) }
 }
 
 export function removePair(tournament: Tournament, pairId: string): ActionResult {
   const draftError = draftOnly(tournament)
   if (draftError) return draftError
-  return { ok: true, tournament: touch({ ...tournament, pairs: tournament.pairs.filter((pair) => pair.id !== pairId) }) }
+  const next = {
+    ...tournament,
+    pairs: tournament.pairs.filter((pair) => pair.id !== pairId),
+    groups: tournament.groups.map((group) => ({ ...group, pairIds: group.pairIds.filter((id) => id !== pairId) })),
+  }
+  return { ok: true, tournament: touch({ ...next, groups: syncDraftGroups(next) }) }
 }
 
 export function drawRandomPairs(tournament: Tournament, random: () => number = Math.random): ActionResult {
@@ -143,7 +155,39 @@ export function drawRandomPairs(tournament: Tournament, random: () => number = M
   for (let index = 0; index < shuffled.length; index += 2) {
     pairs.push({ id: createId(), playerIds: [shuffled[index].id, shuffled[index + 1].id] })
   }
-  return { ok: true, tournament: touch({ ...tournament, pairs }) }
+  const next = { ...tournament, pairs }
+  return { ok: true, tournament: touch({ ...next, groups: syncDraftGroups(next) }) }
+}
+
+export function assignPairToGroup(tournament: Tournament, pairId: string, groupId: string | null): ActionResult {
+  const draftError = draftOnly(tournament)
+  if (draftError) return draftError
+  if (groupAssignmentOf(tournament) !== 'manual') return { ok: false, error: 'En este torneo los grupos se arman al iniciar.' }
+  if (!tournament.pairs.some((pair) => pair.id === pairId)) return { ok: false, error: 'Esa pareja no está en el torneo.' }
+  const groups = syncDraftGroups(tournament)
+  const plan = planGroups(tournament.config.pairCount, tournament.config.groupSize, tournament.config.qualifiersPerGroup)
+  if (plan.error) return { ok: false, error: plan.error }
+  const cleared = groups.map((group) => ({ ...group, pairIds: group.pairIds.filter((id) => id !== pairId) }))
+  if (!groupId) return { ok: true, tournament: touch({ ...tournament, groups: cleared }) }
+  const target = cleared.findIndex((group) => group.id === groupId)
+  if (target < 0) return { ok: false, error: 'No se encontró el grupo.' }
+  const cap = plan.sizes[target]
+  if (cleared[target].pairIds.length >= cap) return { ok: false, error: `${cleared[target].name} ya está completo.` }
+  cleared[target] = { ...cleared[target], pairIds: [...cleared[target].pairIds, pairId] }
+  return { ok: true, tournament: touch({ ...tournament, groups: cleared }) }
+}
+
+export function autoFillGroups(tournament: Tournament, random?: () => number): ActionResult {
+  const draftError = draftOnly(tournament)
+  if (draftError) return draftError
+  if (groupAssignmentOf(tournament) !== 'manual') return { ok: false, error: 'En este torneo los grupos se arman al iniciar.' }
+  if (tournament.pairs.length !== tournament.config.pairCount) {
+    return { ok: false, error: `Forma las ${tournament.config.pairCount} parejas antes de repartir los grupos.` }
+  }
+  const plan = planGroups(tournament.config.pairCount, tournament.config.groupSize, tournament.config.qualifiersPerGroup)
+  if (plan.error) return { ok: false, error: plan.error }
+  const pairs = random ? shuffle(tournament.pairs, random) : [...tournament.pairs]
+  return { ok: true, tournament: touch({ ...tournament, groups: fillGroupsFromPairs(pairs, plan.sizes, tournament.groups) }) }
 }
 
 export function startTournament(tournament: Tournament): ActionResult {
@@ -188,6 +232,7 @@ function sameStructure(current: TournamentConfig, next: TournamentConfig): boole
     && current.pairingMode === next.pairingMode
     && current.groupSize === next.groupSize
     && current.qualifiersPerGroup === next.qualifiersPerGroup
+    && (current.groupAssignment ?? 'auto') === (next.groupAssignment ?? 'auto')
     && current.scoringMode === next.scoringMode
     && current.setsToPlay === next.setsToPlay
 }

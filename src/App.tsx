@@ -14,6 +14,7 @@ const emptyConfig: TournamentConfig = {
   pairCount: 8,
   courtCount: 2,
   pairingMode: 'manual',
+  groupAssignment: 'auto',
   groupSize: 4,
   qualifiersPerGroup: 2,
   ...DEFAULT_SCORING,

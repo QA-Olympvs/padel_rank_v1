@@ -144,7 +144,8 @@ function toSide(tournament: Tournament, side: ResolvedSide, winnerId: string | n
 }
 
 function matchStatus(sideA: ResolvedSide, sideB: ResolvedSide, winnerId: string | null, hasResult: boolean): MatchStatus {
-  if (sideA.state === 'bye' || sideB.state === 'bye') return 'bye'
+  const byeVsPair = (sideA.state === 'bye' && sideB.state === 'pair') || (sideB.state === 'bye' && sideA.state === 'pair')
+  if (byeVsPair || (sideA.state === 'bye' && sideB.state === 'bye')) return 'bye'
   if (winnerId || hasResult) return 'finished'
   if (sideA.state === 'pair' && sideB.state === 'pair') return 'ready'
   return 'waiting'

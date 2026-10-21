@@ -2,6 +2,8 @@ export type CompetitionFormat = 'round_robin' | 'elimination' | 'groups_knockout
 
 export type PairingMode = 'manual' | 'random'
 
+export type GroupAssignment = 'auto' | 'manual'
+
 export type ScoringMode = 'match_points' | 'sets_won'
 
 export type TournamentStatus = 'draft' | 'active'
@@ -12,6 +14,8 @@ export interface TournamentConfig {
   pairCount: number
   courtCount: number
   pairingMode: PairingMode
+  /** Cómo se meten las parejas en los grupos. Solo aplica a grupos y eliminación. */
+  groupAssignment?: GroupAssignment
   groupSize: number
   qualifiersPerGroup: number
   /** Cómo se suman los puntos en liguilla y grupos. */
@@ -48,6 +52,8 @@ export type MatchSide =
   | { kind: 'bye' }
   | { kind: 'winner'; matchId: string }
   | { kind: 'group'; groupId: string; rank: number }
+  /** Plaza del cuadro por puntos entre todas las clasificadas. 1 = la mejor. */
+  | { kind: 'overall'; rank: number }
 
 export type MatchPhase = 'round_robin' | 'group' | 'playoff' | 'knockout'
 
@@ -91,6 +97,11 @@ export const PAIRING_LABEL: Record<PairingMode, string> = {
   random: 'Parejas aleatorias',
 }
 
+export const GROUP_ASSIGNMENT_LABEL: Record<GroupAssignment, string> = {
+  auto: 'Grupos automáticos',
+  manual: 'Grupos a mano',
+}
+
 export const SCORING_LABEL: Record<ScoringMode, string> = {
   match_points: 'Puntos por partido ganado',
   sets_won: 'Suma de sets',
@@ -101,6 +112,8 @@ export const DEFAULT_SCORING = {
   pointsPerWin: 2,
   setsToPlay: 6,
 }
+
+export const DEFAULT_GROUP_ASSIGNMENT: GroupAssignment = 'auto'
 
 export function scoringOf(config: Pick<TournamentConfig, 'scoringMode' | 'pointsPerWin' | 'setsToPlay'>): {
   scoringMode: ScoringMode

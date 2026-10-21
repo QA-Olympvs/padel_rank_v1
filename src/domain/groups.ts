@@ -1,4 +1,5 @@
-import { LIMITS } from './types.ts'
+import { createId } from './ids.ts'
+import { LIMITS, type Group, type Tournament } from './types.ts'
 
 export interface GroupPlan {
   sizes: number[]
@@ -60,6 +61,44 @@ export function describeGroupPlan(plan: GroupPlan, qualifiersPerGroup: number): 
 
 export function groupName(index: number): string {
   return `Grupo ${String.fromCharCode(65 + index)}`
+}
+
+export function groupAssignmentOf(tournament: Tournament): 'auto' | 'manual' {
+  return tournament.config.groupAssignment === 'manual' ? 'manual' : 'auto'
+}
+
+export function fillGroupsFromPairs(pairs: Array<{ id: string }>, sizes: number[], existing: Group[] = []): Group[] {
+  let cursor = 0
+  return sizes.map((size, index) => {
+    const pairIds = pairs.slice(cursor, cursor + size).map((pair) => pair.id)
+    cursor += size
+    return {
+      id: existing[index]?.id ?? createId(),
+      name: groupName(index),
+      pairIds,
+    }
+  })
+}
+
+export function syncDraftGroups(tournament: Tournament): Group[] {
+  if (tournament.config.format !== 'groups_knockout' || groupAssignmentOf(tournament) !== 'manual') return []
+  const plan = planGroups(tournament.config.pairCount, tournament.config.groupSize, tournament.config.qualifiersPerGroup)
+  if (plan.error || plan.sizes.length === 0) return []
+  const valid = new Set(tournament.pairs.map((pair) => pair.id))
+  return plan.sizes.map((size, index) => {
+    const previous = tournament.groups[index]
+    const pairIds = (previous?.pairIds ?? []).filter((id) => valid.has(id)).slice(0, size)
+    return {
+      id: previous?.id ?? createId(),
+      name: groupName(index),
+      pairIds,
+    }
+  })
+}
+
+export function unassignedPairIds(tournament: Tournament): string[] {
+  const used = new Set(tournament.groups.flatMap((group) => group.pairIds))
+  return tournament.pairs.map((pair) => pair.id).filter((id) => !used.has(id))
 }
 
 function describeSizes(sizes: number[]): string {

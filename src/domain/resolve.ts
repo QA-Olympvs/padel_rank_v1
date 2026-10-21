@@ -1,3 +1,4 @@
+import { orderQualifiersForKnockout, randomFrom } from './bracket.ts'
 import { applyFinishedPlayoff, groupLeagueMatches } from './playoff.ts'
 import { tallyMatch } from './scores.ts'
 import { standingsFor, type CountedMatch, type StandingRow } from './standings.ts'
@@ -20,6 +21,14 @@ export function resolveSide(tournament: Tournament, side: MatchSide, stack: Set<
     return { state: 'pair', pairId: winnerId }
   }
 
+  if (side.kind === 'overall') {
+    const label = `Mejor ${side.rank}`
+    const seeds = knockoutSeedPairIds(tournament)
+    const pairId = seeds?.[side.rank - 1]
+    if (!pairId) return { state: 'waiting', label }
+    return { state: 'pair', pairId }
+  }
+
   const group = tournament.groups.find((item) => item.id === side.groupId)
   if (!group) return { state: 'waiting', label: 'Por definir' }
   const label = `${side.rank}º ${group.name}`
@@ -27,6 +36,23 @@ export function resolveSide(tournament: Tournament, side: MatchSide, stack: Set<
   const row = tableForGroup(tournament, group)[side.rank - 1]
   if (!row) return { state: 'waiting', label }
   return { state: 'pair', pairId: row.pairId }
+}
+
+export function knockoutSeedPairIds(tournament: Tournament): string[] | null {
+  if (tournament.config.format !== 'groups_knockout') return null
+  if (tournament.groups.some((group) => !isGroupComplete(tournament, group.id))) return null
+  const qualifiers = tournament.groups.flatMap((group) => {
+    const rows = tableForGroup(tournament, group)
+    return rows.slice(0, tournament.config.qualifiersPerGroup).map((row) => ({
+      pairId: row.pairId,
+      points: row.points,
+      groupId: group.id,
+    }))
+  })
+  const expected = tournament.groups.length * tournament.config.qualifiersPerGroup
+  if (qualifiers.length !== expected) return null
+  const seed = `${tournament.id}:${qualifiers.map((row) => `${row.pairId}:${row.points}`).sort().join('|')}`
+  return orderQualifiersForKnockout(qualifiers, randomFrom(seed))
 }
 
 export function winnerOf(tournament: Tournament, match: Match, stack: Set<string> = new Set()): string | null {
@@ -45,7 +71,10 @@ export function winnerOf(tournament: Tournament, match: Match, stack: Set<string
 export function isMatchFinished(tournament: Tournament, match: Match): boolean {
   const sideA = resolveSide(tournament, match.sideA)
   const sideB = resolveSide(tournament, match.sideB)
-  if (sideA.state === 'bye' || sideB.state === 'bye') return true
+  if (sideA.state === 'bye' && sideB.state === 'pair') return true
+  if (sideB.state === 'bye' && sideA.state === 'pair') return true
+  if (sideA.state === 'bye' && sideB.state === 'bye') return true
+  if (sideA.state === 'bye' || sideB.state === 'bye') return false
   const tally = tallyMatch(match.sets, tournament.config, match.phase)
   if (!tally.valid) return false
   return match.phase === 'group' || match.phase === 'round_robin' || !tally.drawn

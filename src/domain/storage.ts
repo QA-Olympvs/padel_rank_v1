@@ -1,6 +1,7 @@
 import type {
   CompetitionFormat,
   Group,
+  GroupAssignment,
   Match,
   MatchPhase,
   MatchSide,
@@ -114,6 +115,7 @@ function parseConfig(value: unknown): Tournament['config'] | null {
     pairCount: value.pairCount,
     courtCount: value.courtCount,
     pairingMode: value.pairingMode,
+    groupAssignment: isGroupAssignment(value.groupAssignment) ? value.groupAssignment : 'auto',
     groupSize: value.groupSize,
     qualifiersPerGroup: value.qualifiersPerGroup,
     scoringMode,
@@ -201,6 +203,9 @@ function parseSide(value: unknown): MatchSide | null {
   if (value.kind === 'group' && typeof value.groupId === 'string' && isInt(value.rank)) {
     return { kind: 'group', groupId: value.groupId, rank: value.rank }
   }
+  if (value.kind === 'overall' && isInt(value.rank)) {
+    return { kind: 'overall', rank: value.rank }
+  }
   return null
 }
 
@@ -226,6 +231,10 @@ function isFormat(value: unknown): value is CompetitionFormat {
 
 function isPairing(value: unknown): value is PairingMode {
   return value === 'manual' || value === 'random'
+}
+
+function isGroupAssignment(value: unknown): value is GroupAssignment {
+  return value === 'auto' || value === 'manual'
 }
 
 function isScoring(value: unknown): value is ScoringMode {

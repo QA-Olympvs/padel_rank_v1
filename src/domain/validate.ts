@@ -70,5 +70,24 @@ export function readinessError(tournament: Tournament): string | null {
   if (tournament.config.pairingMode === 'manual' && used.size !== expectedPlayers) {
     return 'Todas las parejas tienen que estar completas antes de iniciar.'
   }
+
+  if (tournament.config.format === 'groups_knockout' && tournament.config.groupAssignment === 'manual') {
+    const plan = planGroups(tournament.config.pairCount, tournament.config.groupSize, tournament.config.qualifiersPerGroup)
+    if (plan.error) return plan.error
+    if (tournament.groups.length !== plan.sizes.length) return 'Asigna las parejas a cada grupo antes de iniciar.'
+    for (let index = 0; index < plan.sizes.length; index += 1) {
+      const group = tournament.groups[index]
+      const size = plan.sizes[index]
+      if (!group || group.pairIds.length !== size) {
+        return `${group?.name ?? 'Un grupo'} debe tener ${size} ${size === 1 ? 'pareja' : 'parejas'}.`
+      }
+    }
+    const assigned = tournament.groups.flatMap((group) => group.pairIds)
+    if (new Set(assigned).size !== assigned.length) return 'Una pareja no puede estar en dos grupos.'
+    if (assigned.length !== tournament.pairs.length) return 'Todas las parejas tienen que estar en un grupo.'
+    if (assigned.some((id) => !tournament.pairs.some((pair) => pair.id === id))) {
+      return 'Hay un grupo con una pareja que ya no existe.'
+    }
+  }
   return null
 }

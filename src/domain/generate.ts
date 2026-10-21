@@ -1,15 +1,17 @@
 import { knockoutRoundName, placeInBracket } from './bracket.ts'
-import { groupName, planGroups } from './groups.ts'
+import { fillGroupsFromPairs, groupAssignmentOf, planGroups } from './groups.ts'
 import { createId, timestamp } from './ids.ts'
 import { scheduleMatches } from './schedule.ts'
-import type { Group, Match, MatchSide, Pair, Tournament } from './types.ts'
+import type { Group, Match, MatchSide, Tournament } from './types.ts'
 
 export function buildStartedTournament(tournament: Tournament): Tournament {
   const pairs = tournament.pairs
-  const groups = tournament.config.format === 'groups_knockout' ? buildGroups(pairs, tournament.config.groupSize) : []
   const plan = tournament.config.format === 'groups_knockout'
     ? planGroups(pairs.length, tournament.config.groupSize, tournament.config.qualifiersPerGroup)
     : null
+  const groups = tournament.config.format === 'groups_knockout'
+    ? startedGroups(tournament, plan?.sizes ?? [])
+    : []
 
   const matches = createMatches(tournament, groups)
   return {
@@ -33,26 +35,22 @@ function createMatches(tournament: Tournament, groups: Group[]): Match[] {
   const groupMatches = groups.flatMap((group) =>
     roundRobinMatches(group.pairIds, 'group', group.id),
   )
-  const qualifiers: MatchSide[] = []
-  for (let rank = 1; rank <= tournament.config.qualifiersPerGroup; rank += 1) {
-    for (const group of groups) qualifiers.push({ kind: 'group', groupId: group.id, rank })
-  }
+  const total = groups.length * tournament.config.qualifiersPerGroup
+  const qualifiers: MatchSide[] = Array.from({ length: total }, (_, index) => ({
+    kind: 'overall',
+    rank: index + 1,
+  }))
   return [...groupMatches, ...knockoutMatches(qualifiers)]
 }
 
-function buildGroups(pairs: Pair[], preferredSize: number): Group[] {
-  const plan = planGroups(pairs.length, preferredSize, 1)
-  const groups: Group[] = []
-  let cursor = 0
-  plan.sizes.forEach((size, index) => {
-    groups.push({
-      id: createId(),
-      name: groupName(index),
-      pairIds: pairs.slice(cursor, cursor + size).map((pair) => pair.id),
-    })
-    cursor += size
-  })
-  return groups
+function startedGroups(tournament: Tournament, sizes: number[]): Group[] {
+  if (groupAssignmentOf(tournament) === 'manual' && tournament.groups.length === sizes.length) {
+    return tournament.groups.map((group, index) => ({
+      ...group,
+      pairIds: group.pairIds.slice(0, sizes[index]),
+    }))
+  }
+  return fillGroupsFromPairs(tournament.pairs, sizes, tournament.groups)
 }
 
 function roundRobinMatches(pairIds: string[], phase: 'round_robin' | 'group', groupId?: string): Match[] {

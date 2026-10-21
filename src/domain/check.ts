@@ -1,13 +1,17 @@
 import {
   addManualPair,
   addPlayer,
+  assignPairToGroup,
+  autoFillGroups,
   clearResult,
   createTournament,
   drawRandomPairs,
   recordResult,
   startTournament,
 } from './actions.ts'
+import { pickByePairIds } from './bracket.ts'
 import { presentBracket, presentMatches, presentTables } from './present.ts'
+import { knockoutSeedPairIds } from './resolve.ts'
 import { deserializeStore, serializeStore } from './storage.ts'
 import { DEFAULT_SCORING, type SetScore, type Tournament, type TournamentConfig } from './types.ts'
 
@@ -143,7 +147,110 @@ const rounds = presentBracket(bracket)
 assert(rounds[0].name === 'Cuartos de final', rounds[0].name)
 assert(rounds.at(-1)?.name === 'Final', 'el cuadro acaba en la final')
 assert(presentMatches(bracket).filter((match) => match.status === 'bye').length === 3, '5 parejas dejan 3 pases')
+assert(presentMatches(bracket).filter((match) => match.status === 'bye').every((match) => Boolean(match.sideA.pairId) !== Boolean(match.sideB.pairId)), 'un pase enfrenta a una pareja contra BYE')
 assertNoWaveConflicts(bracket)
+
+const twelveKnockout = start({
+  name: 'Cuadro de 12',
+  format: 'elimination',
+  pairCount: 12,
+  courtCount: 4,
+  pairingMode: 'manual',
+  groupSize: 4,
+  qualifiersPerGroup: 2,
+  ...DEFAULT_SCORING,
+}, [
+  ['Ana', 'Luis'], ['Bea', 'Nora'], ['Cia', 'Otto'], ['Dina', 'Pau'],
+  ['Eva', 'Raul'], ['Fia', 'Sam'], ['Gia', 'Tom'], ['Hia', 'Ugo'],
+  ['Ina', 'Vic'], ['Jia', 'Wes'], ['Kia', 'Xan'], ['Lia', 'Yan'],
+])
+const twelveFirst = presentMatches(twelveKnockout).filter((match) => match.phase === 'knockout' && match.round === 1)
+assert(twelveFirst.length === 8, '12 parejas abren octavos de 8 cruces')
+assert(twelveFirst.filter((match) => match.status === 'bye').length === 4, '12 parejas dejan 4 pases en un cuadro de 16')
+assert(twelveFirst.every((match) => !(match.sideA.label === 'BYE' && match.sideB.label === 'BYE')), 'nunca hay BYE contra BYE')
+assert(twelveFirst.filter((match) => match.status === 'bye').every((match) => match.winnerId !== null), 'el pase nombra ganador de inmediato')
+assertNoWaveConflicts(twelveKnockout)
+
+const twelveGroups = start({
+  name: 'Grupos de 12',
+  format: 'groups_knockout',
+  pairCount: 12,
+  courtCount: 3,
+  pairingMode: 'manual',
+  groupSize: 4,
+  qualifiersPerGroup: 2,
+  ...DEFAULT_SCORING,
+}, [
+  ['Ana', 'Luis'], ['Bea', 'Nora'], ['Cia', 'Otto'], ['Dina', 'Pau'],
+  ['Eva', 'Raul'], ['Fia', 'Sam'], ['Gia', 'Tom'], ['Hia', 'Ugo'],
+  ['Ina', 'Vic'], ['Jia', 'Wes'], ['Kia', 'Xan'], ['Lia', 'Yan'],
+])
+assert(twelveGroups.groups.length === 3, '12 parejas en grupos de 4 son 3 grupos')
+const twelveKo = presentMatches(twelveGroups).filter((match) => match.phase === 'knockout' && match.round === 1)
+assert(twelveKo.length === 4, '6 clasificadas más 2 BYE abren cuartos')
+assert(twelveKo.every((match) => match.status === 'waiting'), 'el cupo contra BYE espera a que el grupo termine')
+assert(twelveKo.filter((match) => match.sideA.label === 'BYE' || match.sideB.label === 'BYE').length === 2, 'hay 2 pases reservados')
+assertNoWaveConflicts(twelveGroups)
+
+const byeClear = pickByePairIds([
+  { pairId: 'a', points: 8 },
+  { pairId: 'b', points: 6 },
+  { pairId: 'c', points: 4 },
+  { pairId: 'd', points: 2 },
+], 2, () => 0)
+assert(byeClear[0] === 'a' && byeClear[1] === 'b', 'con puntos distintos pasan las dos mejores')
+
+const byeTied = pickByePairIds([
+  { pairId: 'a', points: 8 },
+  { pairId: 'b', points: 6 },
+  { pairId: 'c', points: 6 },
+  { pairId: 'd', points: 6 },
+], 2, () => 0.4)
+assert(byeTied.includes('a'), 'quien tiene más puntos que el corte se queda el pase')
+assert(byeTied.length === 2 && byeTied.filter((id) => id !== 'a').every((id) => ['b', 'c', 'd'].includes(id)), 'el segundo pase se sortea entre las empatadas')
+
+let twelveScored = twelveGroups
+for (const match of presentMatches(twelveScored).filter((item) => item.phase === 'group')) {
+  twelveScored = must(recordResult(twelveScored, match.id, [{ gamesA: 6, gamesB: 0 }, { gamesA: 6, gamesB: 0 }]))
+}
+const twelveSeeds = knockoutSeedPairIds(twelveScored)
+assert(twelveSeeds !== null && twelveSeeds.length === 6, 'al cerrar los grupos se ordenan las 6 clasificadas')
+const twelveQualified = presentTables(twelveScored).flatMap((table) => table.rows.filter((row) => row.qualified))
+const byePoints = twelveSeeds.slice(0, 2).map((id) => twelveQualified.find((row) => row.pairId === id)?.points ?? 0)
+const restPoints = twelveSeeds.slice(2).map((id) => twelveQualified.find((row) => row.pairId === id)?.points ?? 0)
+assert(Math.min(...byePoints) >= Math.max(...restPoints), 'los pases van a las clasificadas con más puntos')
+const twelveByes = presentMatches(twelveScored).filter((match) => match.phase === 'knockout' && match.status === 'bye')
+assert(twelveByes.length === 2, 'al cerrar los grupos se confirman 2 pases')
+assert(twelveByes.every((match) => twelveSeeds.slice(0, 2).includes(match.winnerId ?? '')), 'pasan con BYE las dos mejores del orden')
+
+let manualGroups = must(createTournament({
+  name: 'Grupos a mano',
+  format: 'groups_knockout',
+  pairCount: 4,
+  courtCount: 1,
+  pairingMode: 'manual',
+  groupAssignment: 'manual',
+  groupSize: 2,
+  qualifiersPerGroup: 1,
+  ...DEFAULT_SCORING,
+}))
+for (const name of ['Ana', 'Luis', 'Bea', 'Nora', 'Cia', 'Otto', 'Dina', 'Pau']) {
+  manualGroups = must(addPlayer(manualGroups, name))
+}
+manualGroups = must(addManualPair(manualGroups, manualGroups.players[0].id, manualGroups.players[1].id))
+manualGroups = must(addManualPair(manualGroups, manualGroups.players[2].id, manualGroups.players[3].id))
+manualGroups = must(addManualPair(manualGroups, manualGroups.players[4].id, manualGroups.players[5].id))
+manualGroups = must(addManualPair(manualGroups, manualGroups.players[6].id, manualGroups.players[7].id))
+assert(!startTournament(manualGroups).ok, 'no inicia si faltan parejas en los grupos')
+manualGroups = must(assignPairToGroup(manualGroups, manualGroups.pairs[0].id, manualGroups.groups[0].id))
+manualGroups = must(assignPairToGroup(manualGroups, manualGroups.pairs[1].id, manualGroups.groups[0].id))
+manualGroups = must(assignPairToGroup(manualGroups, manualGroups.pairs[2].id, manualGroups.groups[1].id))
+manualGroups = must(assignPairToGroup(manualGroups, manualGroups.pairs[3].id, manualGroups.groups[1].id))
+const startedManual = must(startTournament(manualGroups))
+assert(startedManual.groups[0].pairIds[0] === manualGroups.pairs[0].id, 'respeta la asignación manual del grupo A')
+assert(startedManual.groups[1].pairIds[1] === manualGroups.pairs[3].id, 'respeta la asignación manual del grupo B')
+const shuffledGroups = must(autoFillGroups(manualGroups, () => 0.2))
+assert(shuffledGroups.groups.every((group) => group.pairIds.length === 2), 'el reparto automático llena los grupos')
 
 let current = bracket
 const opening = presentMatches(current).find((match) => match.status === 'ready' && match.round === 1)
